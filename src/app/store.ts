@@ -3,9 +3,10 @@ import { combineSlices, configureStore } from '@reduxjs/toolkit';
 import { setupListeners } from '@reduxjs/toolkit/query';
 
 import { baseApi } from '@/shared/api/baseApi';
+import { moexApi } from '@/shared/api/moexApi';
 
 // `combineSlices` автоматически собирает редьюсеры по их `reducerPath`.
-const rootReducer = combineSlices(baseApi);
+const rootReducer = combineSlices(baseApi, moexApi);
 
 // Тип `RootState` выводится из корневого редьюсера.
 export type TRootState = ReturnType<typeof rootReducer>;
@@ -17,7 +18,7 @@ export const makeStore = (preloadedState?: Partial<TRootState>) => {
     reducer: rootReducer,
     // Middleware RTK Query включает кэширование, инвалидацию, поллинг и т.п.
     // eslint-disable-next-line unicorn/prefer-spread
-    middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(baseApi.middleware),
+    middleware: (getDefaultMiddleware) => getDefaultMiddleware().concat(baseApi.middleware, moexApi.middleware),
     preloadedState,
   });
   // Подключение слушателей для refetchOnFocus / refetchOnReconnect.
