@@ -1,0 +1,73 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+# Права, необходимые для публикации на GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Разрешаем только один параллельный деплой
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Configure private npm registry
+        # Токен подставляется самим Yarn из переменной окружения на шаге install,
+        # поэтому в файл пишем литерал ${COMMUNITY_NPM_TOKEN} (heredoc без подстановки).
+        run: |
+          cat > .yarnrc.yml <<'EOF'
+          nodeLinker: node-modules
+          npmRegistryServer: "https://psblab.gitlab.yandexcloud.net/api/v4/packages/npm/"
+          npmAuthToken: "${COMMUNITY_NPM_TOKEN}"
+          enableGlobalCache: false
+          EOF
+
+      - name: Install dependencies
+        run: yarn install --immutable
+        env:
+          COMMUNITY_NPM_TOKEN: ${{ secrets.COMMUNITY_NPM_TOKEN }}
+
+      - name: Build
+        run: yarn build
+
+      - name: SPA fallback for client-side routing
+        run: cp dist/index.html dist/404.html
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

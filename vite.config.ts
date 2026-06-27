@@ -6,7 +6,10 @@ import path from 'path';
 import svgr from 'vite-plugin-svgr';
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // На GitHub Pages проект отдаётся по пути /<repo>/, поэтому для сборки
+  // задаём base = '/invest1/'. В dev-режиме оставляем корень.
+  base: command === 'build' ? '/invest1/' : '/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -35,4 +38,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
