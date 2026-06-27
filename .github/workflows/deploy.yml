@@ -19,6 +19,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Токен нужен Yarn на каждом вызове, т.к. он подставляется в .yarnrc.yml.
+    env:
+      COMMUNITY_NPM_TOKEN: ${{ secrets.COMMUNITY_NPM_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,8 +47,6 @@ jobs:
 
       - name: Install dependencies
         run: yarn install --immutable
-        env:
-          COMMUNITY_NPM_TOKEN: ${{ secrets.COMMUNITY_NPM_TOKEN }}
 
       - name: Build
         run: yarn build
