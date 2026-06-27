@@ -86,6 +86,30 @@ const getBondType = (secid: string, sectype: string): string => {
   return SECTYPE_LABELS[sectype] ?? 'Прочая';
 };
 
+/**
+ * Количество купонов в год.
+ *
+ * MOEX не отдаёт COUPONFREQUENCY в общем списке, поэтому вычисляем как
+ * годовой купон (номинал × ставка%) ÷ выплата за один купон (COUPONVALUE).
+ */
+const getCouponsPerYear = (
+  faceValue: number | null,
+  couponPercent: number | null,
+  couponValue: number | null,
+): number | null => {
+  if (
+    faceValue === null ||
+    couponPercent === null ||
+    couponPercent === 0 ||
+    couponValue === null ||
+    couponValue === 0
+  ) {
+    return null;
+  }
+  const frequency = Math.round((faceValue * couponPercent) / 100 / couponValue);
+  return frequency >= 1 && frequency <= 12 ? frequency : null;
+};
+
 /** Количество лет до погашения; `null`, если дата не задана (бессрочные и т.п.). */
 const getYearsToMaturity = (matDate: string): number | null => {
   const ms = Date.parse(matDate);
@@ -166,6 +190,8 @@ const bondsApi = moexApi.injectEndpoints({
           const pricePercent = market?.pricePercent ?? null;
           const shortName = toString(row[idxShortName]);
           const type = getBondType(secid, toString(row[idxSecType]));
+          const couponPercent = toNumber(row[idxCouponPercent]);
+          const couponValue = toNumber(row[idxCouponValue]);
 
           bonds.push({
             secid,
@@ -176,8 +202,9 @@ const bondsApi = moexApi.injectEndpoints({
             faceValue,
             priceRub: pricePercent !== null && faceValue !== null ? (pricePercent / 100) * faceValue : null,
             dayChangePercent: market?.dayChangePercent ?? null,
-            couponPercent: toNumber(row[idxCouponPercent]),
-            couponValue: toNumber(row[idxCouponValue]),
+            couponPercent,
+            couponValue,
+            couponsPerYear: getCouponsPerYear(faceValue, couponPercent, couponValue),
             matDate,
             yearsToMaturity: getYearsToMaturity(matDate),
             currency: toString(row[idxCurrency]),

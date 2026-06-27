@@ -13,6 +13,8 @@ export interface Bond {
   dayChangePercent: number | null;
   couponPercent: number | null;
   couponValue: number | null;
+  /** Количество купонов в год (вычислено: годовой купон ÷ выплата за купон). */
+  couponsPerYear: number | null;
   matDate: string;
   /** Лет до погашения (может быть отрицательным/`null` для бессрочных и без даты). */
   yearsToMaturity: number | null;

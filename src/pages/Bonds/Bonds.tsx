@@ -9,16 +9,31 @@ import {
   getSortedRowModel,
   useReactTable,
 } from '@tanstack/react-table';
+import {
+  ArrowDown,
+  ArrowUp,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  ChevronsUpDown,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+} from 'lucide-react';
 
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { Bond } from '@/features/bonds';
 import { useGetBondsQuery } from '@/features/bonds';
+import { cn } from '@/lib/utils';
 
 const EMPTY_BONDS: Bond[] = [];
-const SKELETON_KEYS = ['s1', 's2', 's3', 's4', 's5', 's6'];
+const SKELETON_KEYS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
 const ALL_TYPES = 'all';
 const ALL_RATINGS = 'all';
 const NO_RATING = 'none';
@@ -43,6 +58,24 @@ const RATING_ORDER = [
   'B-',
 ];
 
+// Колонки с числами (выравнивание вправо, моноширинные цифры) и по центру.
+const RIGHT_ALIGNED = new Set([
+  'faceValue',
+  'priceRub',
+  'dayChangePercent',
+  'couponPercent',
+  'couponValue',
+  'couponsPerYear',
+  'yearsToMaturity',
+]);
+const CENTER_ALIGNED = new Set(['type', 'creditRating', 'currency']);
+
+const alignClass = (columnId: string): string =>
+  RIGHT_ALIGNED.has(columnId) ? 'text-right' : CENTER_ALIGNED.has(columnId) ? 'text-center' : 'text-left';
+
+const headerJustifyClass = (columnId: string): string =>
+  RIGHT_ALIGNED.has(columnId) ? 'justify-end' : CENTER_ALIGNED.has(columnId) ? 'justify-center' : 'justify-start';
+
 const numberFormatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const formatNumber = (value: number | null): string => (value === null ? '—' : numberFormatter.format(value));
 
@@ -55,9 +88,48 @@ const DayChangeCell = ({ value }: { value: number | null }) => {
   if (value === null) {
     return <span className="text-muted-foreground">—</span>;
   }
+  if (value === 0) {
+    return <span className="text-muted-foreground">0 %</span>;
+  }
 
-  const colorClass = value > 0 ? 'text-green-600' : value < 0 ? 'text-red-600' : 'text-muted-foreground';
-  return <span className={colorClass}>{`${percentChangeFormatter.format(value)} %`}</span>;
+  const isPositive = value > 0;
+  const Icon = isPositive ? TrendingUp : TrendingDown;
+  return (
+    <span className={cn('inline-flex items-center justify-end gap-1', isPositive ? 'text-green-600' : 'text-red-600')}>
+      <Icon className="size-3.5" />
+      {`${percentChangeFormatter.format(value)} %`}
+    </span>
+  );
+};
+
+const getRatingClassName = (rating: string): string => {
+  if (rating.startsWith('AAA')) {
+    return 'border-transparent bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-400';
+  }
+  if (rating.startsWith('AA')) {
+    return 'border-transparent bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400';
+  }
+  if (rating.startsWith('A')) {
+    return 'border-transparent bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400';
+  }
+  return 'border-transparent bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-400';
+};
+
+const RatingCell = ({ value }: { value: string | null }) => {
+  if (value === null) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  return <Badge className={getRatingClassName(value)}>{value}</Badge>;
+};
+
+const SortIcon = ({ sorted }: { sorted: false | 'asc' | 'desc' }) => {
+  if (sorted === 'asc') {
+    return <ArrowUp className="size-3.5" />;
+  }
+  if (sorted === 'desc') {
+    return <ArrowDown className="size-3.5" />;
+  }
+  return <ChevronsUpDown className="size-3.5 opacity-40" />;
 };
 
 // Расшифровка типов облигаций для подписей в фильтре.
@@ -80,8 +152,24 @@ const formatTypeLabel = (type: string): string => {
 };
 
 const COLUMNS: ColumnDef<Bond>[] = [
-  { accessorKey: 'shortName', header: 'Название' },
-  { accessorKey: 'type', header: 'Тип', filterFn: 'equalsString' },
+  {
+    accessorKey: 'shortName',
+    header: 'Название',
+    cell: ({ getValue }) => <span className="font-medium">{getValue<string>()}</span>,
+  },
+  {
+    accessorKey: 'type',
+    header: 'Тип',
+    filterFn: 'equalsString',
+    cell: ({ getValue }) => (
+      <Badge
+        variant="secondary"
+        className="font-normal"
+      >
+        {getValue<string>()}
+      </Badge>
+    ),
+  },
   {
     accessorKey: 'creditRating',
     header: 'Рейтинг',
@@ -89,9 +177,13 @@ const COLUMNS: ColumnDef<Bond>[] = [
       const value = row.getValue<string | null>(columnId);
       return filterValue === NO_RATING ? value === null : value === filterValue;
     },
-    cell: ({ getValue }) => getValue<string | null>() ?? <span className="text-muted-foreground">—</span>,
+    cell: ({ getValue }) => <RatingCell value={getValue<string | null>()} />,
   },
-  { accessorKey: 'isin', header: 'ISIN' },
+  {
+    accessorKey: 'isin',
+    header: 'ISIN',
+    cell: ({ getValue }) => <span className="font-mono text-xs text-muted-foreground">{getValue<string>()}</span>,
+  },
   {
     accessorKey: 'faceValue',
     header: 'Номинал',
@@ -100,7 +192,7 @@ const COLUMNS: ColumnDef<Bond>[] = [
   {
     accessorKey: 'priceRub',
     header: 'Цена, ₽',
-    cell: ({ getValue }) => formatNumber(getValue<number | null>()),
+    cell: ({ getValue }) => <span className="font-medium">{formatNumber(getValue<number | null>())}</span>,
   },
   {
     accessorKey: 'dayChangePercent',
@@ -117,7 +209,11 @@ const COLUMNS: ColumnDef<Bond>[] = [
     header: 'Купон, ₽',
     cell: ({ getValue }) => formatNumber(getValue<number | null>()),
   },
-  { accessorKey: 'matDate', header: 'Погашение' },
+  {
+    accessorKey: 'couponsPerYear',
+    header: 'Купонов в год',
+    cell: ({ getValue }) => formatNumber(getValue<number | null>()),
+  },
   {
     accessorKey: 'yearsToMaturity',
     header: 'Лет до погашения',
@@ -173,154 +269,206 @@ export const Bonds = () => {
     ratingColumn?.setFilterValue(value === ALL_RATINGS ? undefined : value);
   };
 
+  const { pageIndex, pageSize } = table.getState().pagination;
+  const filteredCount = table.getFilteredRowModel().rows.length;
+  const rangeFrom = filteredCount === 0 ? 0 : pageIndex * pageSize + 1;
+  const rangeTo = Math.min((pageIndex + 1) * pageSize, filteredCount);
+
   return (
-    <section className="flex flex-col gap-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Облигации</h1>
-        <Button
-          variant="outline"
-          disabled={isFetching}
-          onClick={() => void refetch()}
-        >
-          Обновить
-        </Button>
-      </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>Облигации</CardTitle>
+        <CardDescription>Данные Московской биржи (MOEX ISS)</CardDescription>
+        <CardAction>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isFetching}
+            onClick={() => void refetch()}
+          >
+            <RefreshCw className={cn('size-4', isFetching && 'animate-spin')} />
+            Обновить
+          </Button>
+        </CardAction>
+      </CardHeader>
 
-      {isError && <p className="text-destructive">Не удалось загрузить облигации с MOEX.</p>}
+      <CardContent className="flex flex-col gap-4">
+        {isError && (
+          <p className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            Не удалось загрузить облигации с MOEX.
+          </p>
+        )}
 
-      {isLoading ? (
-        <div className="flex flex-col gap-2">
-          {SKELETON_KEYS.map((key) => (
-            <Skeleton
-              key={key}
-              className="h-9 w-full"
-            />
-          ))}
-        </div>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Тип:</span>
-              <Select
-                value={selectedType}
-                onValueChange={handleTypeChange}
-              >
-                <SelectTrigger className="w-56">
-                  <SelectValue placeholder="Все типы" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_TYPES}>Все типы</SelectItem>
-                  {typeOptions.map((type) => (
-                    <SelectItem
-                      key={type}
-                      value={type}
-                    >
-                      {formatTypeLabel(type)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">Рейтинг:</span>
-              <Select
-                value={selectedRating}
-                onValueChange={handleRatingChange}
-              >
-                <SelectTrigger className="w-48">
-                  <SelectValue placeholder="Все рейтинги" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={ALL_RATINGS}>Все рейтинги</SelectItem>
-                  {ratingOptions.map((rating) => (
-                    <SelectItem
-                      key={rating}
-                      value={rating}
-                    >
-                      {rating}
-                    </SelectItem>
-                  ))}
-                  {hasUnrated && <SelectItem value={NO_RATING}>Без рейтинга</SelectItem>}
-                </SelectContent>
-              </Select>
-            </div>
+        {isLoading ? (
+          <div className="flex flex-col gap-2">
+            {SKELETON_KEYS.map((key) => (
+              <Skeleton
+                key={key}
+                className="h-10 w-full"
+              />
+            ))}
           </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Тип:</span>
+                <Select
+                  value={selectedType}
+                  onValueChange={handleTypeChange}
+                >
+                  <SelectTrigger className="w-56">
+                    <SelectValue placeholder="Все типы" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_TYPES}>Все типы</SelectItem>
+                    {typeOptions.map((type) => (
+                      <SelectItem
+                        key={type}
+                        value={type}
+                      >
+                        {formatTypeLabel(type)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
 
-          <div className="overflow-x-auto rounded-lg border">
-            <Table>
-              <TableHeader>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <TableRow key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => {
-                      const sorted = header.column.getIsSorted();
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Рейтинг:</span>
+                <Select
+                  value={selectedRating}
+                  onValueChange={handleRatingChange}
+                >
+                  <SelectTrigger className="w-48">
+                    <SelectValue placeholder="Все рейтинги" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ALL_RATINGS}>Все рейтинги</SelectItem>
+                    {ratingOptions.map((rating) => (
+                      <SelectItem
+                        key={rating}
+                        value={rating}
+                      >
+                        {rating}
+                      </SelectItem>
+                    ))}
+                    {hasUnrated && <SelectItem value={NO_RATING}>Без рейтинга</SelectItem>}
+                  </SelectContent>
+                </Select>
+              </div>
 
-                      return (
-                        <TableHead key={header.id}>
+              <Badge
+                variant="secondary"
+                className="ml-auto font-normal"
+              >
+                Найдено: {filteredCount}
+              </Badge>
+            </div>
+
+            <div className="max-h-[65vh] overflow-auto rounded-lg border">
+              <Table>
+                <TableHeader>
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead
+                          key={header.id}
+                          className={cn('sticky top-0 z-10 bg-muted', alignClass(header.column.id))}
+                        >
                           <button
                             type="button"
-                            className="flex items-center gap-1 font-medium"
+                            className={cn(
+                              'inline-flex w-full items-center gap-1 font-medium transition-colors hover:text-foreground',
+                              headerJustifyClass(header.column.id),
+                            )}
                             onClick={header.column.getToggleSortingHandler()}
                           >
                             {flexRender(header.column.columnDef.header, header.getContext())}
-                            <span className="text-muted-foreground">
-                              {sorted === 'asc' ? '↑' : sorted === 'desc' ? '↓' : ''}
-                            </span>
+                            <SortIcon sorted={header.column.getIsSorted()} />
                           </button>
                         </TableHead>
-                      );
-                    })}
-                  </TableRow>
-                ))}
-              </TableHeader>
-              <TableBody>
-                {table.getRowModel().rows.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={COLUMNS.length}
-                      className="text-center text-muted-foreground"
-                    >
-                      Ничего не найдено
-                    </TableCell>
-                  </TableRow>
-                ) : (
-                  table.getRowModel().rows.map((row) => (
-                    <TableRow key={row.id}>
-                      {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
                       ))}
                     </TableRow>
-                  ))
-                )}
-              </TableBody>
-            </Table>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">
-              Стр. {table.getState().pagination.pageIndex + 1} из {table.getPageCount() || 1} · всего{' '}
-              {table.getFilteredRowModel().rows.length}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                disabled={!table.getCanPreviousPage()}
-                onClick={() => table.previousPage()}
-              >
-                Назад
-              </Button>
-              <Button
-                variant="outline"
-                disabled={!table.getCanNextPage()}
-                onClick={() => table.nextPage()}
-              >
-                Вперёд
-              </Button>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {table.getRowModel().rows.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={COLUMNS.length}
+                        className="h-24 text-center text-muted-foreground"
+                      >
+                        Ничего не найдено
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    table.getRowModel().rows.map((row) => (
+                      <TableRow key={row.id}>
+                        {row.getVisibleCells().map((cell) => (
+                          <TableCell
+                            key={cell.id}
+                            className={cn(
+                              alignClass(cell.column.id),
+                              RIGHT_ALIGNED.has(cell.column.id) && 'tabular-nums',
+                            )}
+                          >
+                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
             </div>
-          </div>
-        </>
-      )}
-    </section>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">
+                {rangeFrom}–{rangeTo} из {filteredCount} · стр. {pageIndex + 1} из {table.getPageCount() || 1}
+              </span>
+              <div className="flex gap-1">
+                <Button
+                  variant="outline"
+                  size="icon"
+                  disabled={!table.getCanPreviousPage()}
+                  onClick={() => table.firstPage()}
+                  aria-label="Первая страница"
+                >
+                  <ChevronsLeft className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  disabled={!table.getCanPreviousPage()}
+                  onClick={() => table.previousPage()}
+                  aria-label="Предыдущая страница"
+                >
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  disabled={!table.getCanNextPage()}
+                  onClick={() => table.nextPage()}
+                  aria-label="Следующая страница"
+                >
+                  <ChevronRight className="size-4" />
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  disabled={!table.getCanNextPage()}
+                  onClick={() => table.lastPage()}
+                  aria-label="Последняя страница"
+                >
+                  <ChevronsRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 };
