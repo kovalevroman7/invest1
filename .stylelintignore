@@ -1,0 +1,5 @@
+/node_modules/
+/dist/
+
+# Сгенерированная Tailwind v4 / shadcn тема (синтаксис несовместим с scss-конфигом)
+src/index.css

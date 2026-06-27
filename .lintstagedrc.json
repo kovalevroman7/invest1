@@ -1,0 +1,6 @@
+{
+  "*.{ts,tsx}": "bash -c tsc --noEmit --pretty",
+  "*.{js,jsx,ts,tsx}": "yarn eslint:cli --fix",
+  "*.{css,scss}": "yarn stylelint:cli --fix",
+  "*": "yarn prettier:cli --write"
+}

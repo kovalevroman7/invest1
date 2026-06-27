@@ -1,0 +1,10 @@
+.husky
+.idea
+.vscode
+.git
+node_modules
+public
+yarn.lock
+.eslintcache
+.prettiercache
+dist
