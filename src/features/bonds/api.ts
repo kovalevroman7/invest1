@@ -29,6 +29,52 @@ const toNumber = (value: string | number | null): number | null => (typeof value
 
 const toString = (value: string | number | null): string => (value === null ? '' : String(value));
 
+// Ручной (приблизительный) справочник кредитных рейтингов по нац. шкале:
+// MOEX ISS рейтинги не отдаёт. Сопоставление по фрагменту короткого имени бумаги.
+// Требует периодической актуализации; покрытие ограничено крупными эмитентами.
+const ISSUER_RATINGS: [pattern: string, rating: string][] = [
+  ['СБЕР', 'AAA'],
+  ['ВТБ', 'AAA'],
+  ['ГАЗПН', 'AAA'],
+  ['ГАЗПР', 'AAA'],
+  ['РЖД', 'AAA'],
+  ['ДОМ.РФ', 'AAA'],
+  ['ДОМРФ', 'AAA'],
+  ['РОСНЕФ', 'AAA'],
+  ['ЛУКОЙЛ', 'AAA'],
+  ['НОВАТЭК', 'AAA'],
+  ['ТРАНСНЕФ', 'AAA'],
+  ['РУСГИДРО', 'AAA'],
+  ['РОССЕТИ', 'AAA'],
+  ['ФСК', 'AAA'],
+  ['ГМКНОР', 'AAA'],
+  ['МАГНИТ', 'AAA'],
+  ['МТС', 'AAA'],
+  ['ВЭБ', 'AAA'],
+  ['РОСАТОМ', 'AAA'],
+  ['АТОМЭНЕРГО', 'AAA'],
+  ['РСХБ', 'AA+'],
+  ['АЛЬФА', 'AA+'],
+  ['ГПБ', 'AA+'],
+  ['СИСТЕМА', 'AA-'],
+  ['ГТЛК', 'AA-'],
+  ['САМОЛЕТ', 'A+'],
+];
+
+/** Кредитный рейтинг эмитента: ОФЗ — суверенный AAA, иначе ручной справочник. */
+const getCreditRating = (shortName: string, type: string): string | null => {
+  if (type.startsWith('ОФЗ')) {
+    return 'AAA';
+  }
+  const upperName = shortName.toUpperCase();
+  for (const [pattern, rating] of ISSUER_RATINGS) {
+    if (upperName.includes(pattern)) {
+      return rating;
+    }
+  }
+  return null;
+};
+
 /** Определить тип облигации по SECTYPE из MOEX и серии SECID (для ОФЗ). */
 const getBondType = (secid: string, sectype: string): string => {
   if (sectype === '3') {
@@ -66,27 +112,29 @@ const bondsApi = moexApi.injectEndpoints({
           'iss.meta': 'off',
           'iss.only': 'securities,marketdata',
           'securities.columns': BOND_COLUMNS,
-          'marketdata.columns': 'SECID,LAST,MARKETPRICE,LCLOSEPRICE',
+          'marketdata.columns': 'SECID,LAST,MARKETPRICE,LCLOSEPRICE,LASTTOPREVPRICE',
         },
       }),
       transformResponse: (response: MoexSecuritiesResponse): Bond[] => {
-        // Карта SECID → цена в % от номинала (из marketdata): LAST, иначе MARKETPRICE/LCLOSEPRICE.
+        // Карта SECID → рыночные данные (цена в % от номинала и изменение за день в %).
         const md = response.marketdata;
         const mdIdxSecid = md.columns.indexOf('SECID');
         const mdIdxLast = md.columns.indexOf('LAST');
         const mdIdxMarket = md.columns.indexOf('MARKETPRICE');
         const mdIdxClose = md.columns.indexOf('LCLOSEPRICE');
+        const mdIdxDayChange = md.columns.indexOf('LASTTOPREVPRICE');
 
-        const pricePercentBySecid = new Map<string, number>();
+        const marketBySecid = new Map<string, { pricePercent: number | null; dayChangePercent: number | null }>();
         for (const row of md.data) {
           const secid = toString(row[mdIdxSecid]);
-          if (!secid || pricePercentBySecid.has(secid)) {
+          if (!secid || marketBySecid.has(secid)) {
             continue;
           }
-          const price = toNumber(row[mdIdxLast]) ?? toNumber(row[mdIdxMarket]) ?? toNumber(row[mdIdxClose]);
-          if (price !== null) {
-            pricePercentBySecid.set(secid, price);
-          }
+          marketBySecid.set(secid, {
+            // Цена: LAST, иначе MARKETPRICE/LCLOSEPRICE.
+            pricePercent: toNumber(row[mdIdxLast]) ?? toNumber(row[mdIdxMarket]) ?? toNumber(row[mdIdxClose]),
+            dayChangePercent: toNumber(row[mdIdxDayChange]),
+          });
         }
 
         const { columns, data } = response.securities;
@@ -114,15 +162,20 @@ const bondsApi = moexApi.injectEndpoints({
 
           const matDate = toString(row[idxMatDate]);
           const faceValue = toNumber(row[idxFaceValue]);
-          const pricePercent = pricePercentBySecid.get(secid) ?? null;
+          const market = marketBySecid.get(secid);
+          const pricePercent = market?.pricePercent ?? null;
+          const shortName = toString(row[idxShortName]);
+          const type = getBondType(secid, toString(row[idxSecType]));
 
           bonds.push({
             secid,
-            shortName: toString(row[idxShortName]),
+            shortName,
             isin: toString(row[idxIsin]),
-            type: getBondType(secid, toString(row[idxSecType])),
+            type,
+            creditRating: getCreditRating(shortName, type),
             faceValue,
             priceRub: pricePercent !== null && faceValue !== null ? (pricePercent / 100) * faceValue : null,
+            dayChangePercent: market?.dayChangePercent ?? null,
             couponPercent: toNumber(row[idxCouponPercent]),
             couponValue: toNumber(row[idxCouponValue]),
             matDate,

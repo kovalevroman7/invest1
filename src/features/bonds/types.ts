@@ -4,9 +4,13 @@ export interface Bond {
   isin: string;
   /** Тип облигации: ОФЗ-ПД, ОФЗ-ПК, Корпоративная, Биржевая и т.д. */
   type: string;
+  /** Кредитный рейтинг эмитента (нац. шкала, ручной справочник) или `null`. */
+  creditRating: string | null;
   faceValue: number | null;
   /** Цена в рублях = цена в % от номинала × номинал / 100. */
   priceRub: number | null;
+  /** Изменение цены за день в % (последняя сделка к закрытию предыдущего дня). */
+  dayChangePercent: number | null;
   couponPercent: number | null;
   couponValue: number | null;
   matDate: string;
