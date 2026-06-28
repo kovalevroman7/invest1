@@ -20,8 +20,8 @@ export interface Bond {
   matDate: string;
   /** Лет до погашения (может быть отрицательным/`null` для бессрочных и без даты). */
   yearsToMaturity: number | null;
-  /** Простая доходность к погашению в % (без учёта реинвестирования купонов). */
-  simpleYield: number | null;
+  /** Эффективная доходность к погашению в % (поле MOEX YIELD). */
+  effectiveYield: number | null;
   currency: string;
 }
 

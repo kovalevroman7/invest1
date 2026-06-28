@@ -110,32 +110,6 @@ const getCouponsPerYear = (
   return frequency >= 1 && frequency <= 12 ? frequency : null;
 };
 
-/**
- * Простая доходность к погашению в % (без учёта реинвестирования купонов).
- *
- * Формула: (годовой купон + (номинал − грязная цена) / лет) / грязная цена.
- * Грязная цена = цена в рублях + НКД. Для флоатеров (без ставки) и бумаг без
- * цены/срока возвращает `null`.
- */
-const getSimpleYield = (
-  priceRub: number | null,
-  accruedInt: number | null,
-  faceValue: number | null,
-  couponPercent: number | null,
-  years: number | null,
-): number | null => {
-  if (priceRub === null || faceValue === null || couponPercent === null || years === null || years <= 0) {
-    return null;
-  }
-  const dirtyPrice = priceRub + (accruedInt ?? 0);
-  if (dirtyPrice <= 0) {
-    return null;
-  }
-  const annualCoupon = (faceValue * couponPercent) / 100;
-  const yieldPercent = ((annualCoupon + (faceValue - dirtyPrice) / years) / dirtyPrice) * 100;
-  return Math.round(yieldPercent * 100) / 100;
-};
-
 /** Количество лет до погашения; `null`, если дата не задана (бессрочные и т.п.). */
 const getYearsToMaturity = (matDate: string): number | null => {
   const ms = Date.parse(matDate);
@@ -162,7 +136,7 @@ const bondsApi = moexApi.injectEndpoints({
           'iss.meta': 'off',
           'iss.only': 'securities,marketdata',
           'securities.columns': BOND_COLUMNS,
-          'marketdata.columns': 'SECID,LAST,MARKETPRICE,LCLOSEPRICE,LASTTOPREVPRICE',
+          'marketdata.columns': 'SECID,LAST,MARKETPRICE,LCLOSEPRICE,LASTTOPREVPRICE,YIELD',
         },
       }),
       transformResponse: (response: MoexSecuritiesResponse): Bond[] => {
@@ -173,18 +147,38 @@ const bondsApi = moexApi.injectEndpoints({
         const mdIdxMarket = md.columns.indexOf('MARKETPRICE');
         const mdIdxClose = md.columns.indexOf('LCLOSEPRICE');
         const mdIdxDayChange = md.columns.indexOf('LASTTOPREVPRICE');
+        const mdIdxYield = md.columns.indexOf('YIELD');
 
-        const marketBySecid = new Map<string, { pricePercent: number | null; dayChangePercent: number | null }>();
+        // У бумаги несколько досок; нужна основная (с реальной сделкой LAST и
+        // корректным YIELD), а не служебные вроде SPOB (LAST пустой, мусорный YIELD).
+        const marketBySecid = new Map<
+          string,
+          {
+            hasLast: boolean;
+            pricePercent: number | null;
+            dayChangePercent: number | null;
+            effectiveYield: number | null;
+          }
+        >();
         for (const row of md.data) {
           const secid = toString(row[mdIdxSecid]);
-          if (!secid || marketBySecid.has(secid)) {
+          if (!secid) {
             continue;
           }
-          marketBySecid.set(secid, {
-            // Цена: LAST, иначе MARKETPRICE/LCLOSEPRICE.
-            pricePercent: toNumber(row[mdIdxLast]) ?? toNumber(row[mdIdxMarket]) ?? toNumber(row[mdIdxClose]),
-            dayChangePercent: toNumber(row[mdIdxDayChange]),
-          });
+          const existing = marketBySecid.get(secid);
+          if (existing?.hasLast) {
+            continue;
+          }
+          const last = toNumber(row[mdIdxLast]);
+          // Заменяем накопленную строку, только если у новой есть LAST (основная доска).
+          if (!existing || last !== null) {
+            marketBySecid.set(secid, {
+              hasLast: last !== null,
+              pricePercent: last ?? toNumber(row[mdIdxMarket]) ?? toNumber(row[mdIdxClose]),
+              dayChangePercent: toNumber(row[mdIdxDayChange]),
+              effectiveYield: toNumber(row[mdIdxYield]),
+            });
+          }
         }
 
         const { columns, data } = response.securities;
@@ -220,8 +214,6 @@ const bondsApi = moexApi.injectEndpoints({
           const couponPercent = toNumber(row[idxCouponPercent]);
           const couponValue = toNumber(row[idxCouponValue]);
           const priceRub = pricePercent !== null && faceValue !== null ? (pricePercent / 100) * faceValue : null;
-          const accruedInt = toNumber(row[idxAccruedInt]);
-          const yearsToMaturity = getYearsToMaturity(matDate);
 
           bonds.push({
             secid,
@@ -231,14 +223,14 @@ const bondsApi = moexApi.injectEndpoints({
             creditRating: getCreditRating(shortName, type),
             faceValue,
             priceRub,
-            accruedInt,
+            accruedInt: toNumber(row[idxAccruedInt]),
             dayChangePercent: market?.dayChangePercent ?? null,
             couponPercent,
             couponValue,
             couponsPerYear: getCouponsPerYear(faceValue, couponPercent, couponValue),
             matDate,
-            yearsToMaturity,
-            simpleYield: getSimpleYield(priceRub, accruedInt, faceValue, couponPercent, yearsToMaturity),
+            yearsToMaturity: getYearsToMaturity(matDate),
+            effectiveYield: market?.effectiveYield ?? null,
             currency: toString(row[idxCurrency]),
           });
         }
