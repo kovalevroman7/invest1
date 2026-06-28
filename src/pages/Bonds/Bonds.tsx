@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 
-import type { ColumnDef, ColumnFiltersState, SortingState } from '@tanstack/react-table';
+import type { ColumnDef, ColumnFiltersState, OnChangeFn, SortingState } from '@tanstack/react-table';
 import {
   flexRender,
   getCoreRowModel,
@@ -19,6 +19,7 @@ import {
   ChevronsUpDown,
   Loader2,
   RefreshCw,
+  Star,
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
@@ -33,8 +34,37 @@ import type { Bond } from '@/features/bonds';
 import { useGetBondsQuery, useGetWeekAgoClosesQuery } from '@/features/bonds';
 import { cn } from '@/lib/utils';
 
-// Строка таблицы = облигация + изменение за неделю (undefined, пока данные грузятся).
-type BondRow = Bond & { weekChange: number | null | undefined };
+// Строка таблицы = облигация + изменение за неделю (undefined, пока данные грузятся) + флаг избранного.
+type BondRow = Bond & { weekChange: number | null | undefined; isFavorite: boolean };
+
+const FAVORITES_KEY = 'bonds:favorites';
+
+// Избранные SECID хранятся в localStorage; избранные закрепляются сверху таблицы.
+const useFavorites = () => {
+  const [favorites, setFavorites] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(FAVORITES_KEY);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set<string>();
+    }
+  });
+
+  const toggleFavorite = useCallback((secid: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(secid)) {
+        next.delete(secid);
+      } else {
+        next.add(secid);
+      }
+      localStorage.setItem(FAVORITES_KEY, JSON.stringify([...next]));
+      return next;
+    });
+  }, []);
+
+  return { favorites, toggleFavorite };
+};
 
 const EMPTY_BONDS: Bond[] = [];
 const SKELETON_KEYS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
@@ -76,7 +106,7 @@ const RIGHT_ALIGNED = new Set([
   'couponsPerYear',
   'yearsToMaturity',
 ]);
-const CENTER_ALIGNED = new Set(['type', 'creditRating', 'currency']);
+const CENTER_ALIGNED = new Set(['favorite', 'type', 'creditRating', 'currency']);
 
 const alignClass = (columnId: string): string =>
   RIGHT_ALIGNED.has(columnId) ? 'text-right' : CENTER_ALIGNED.has(columnId) ? 'text-center' : 'text-left';
@@ -267,10 +297,11 @@ const COLUMNS: ColumnDef<BondRow>[] = [
 export const Bonds = () => {
   const { data: bonds, isLoading, isError, isFetching, refetch } = useGetBondsQuery();
   const { data: weekData, isError: isWeekError } = useGetWeekAgoClosesQuery();
+  const { favorites, toggleFavorite } = useFavorites();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
-  // Объединяем облигации с изменением за неделю (undefined — данные ещё грузятся → спиннер).
+  // Объединяем облигации с изменением за неделю (undefined — данные ещё грузятся → спиннер) и флагом избранного.
   const rows = useMemo<BondRow[]>(
     () =>
       (bonds ?? EMPTY_BONDS).map((bond) => {
@@ -284,10 +315,47 @@ export const Bonds = () => {
         } else if (isWeekError) {
           weekChange = null;
         }
-        return { ...bond, weekChange };
+        return { ...bond, weekChange, isFavorite: favorites.has(bond.secid) };
       }),
-    [bonds, weekData, isWeekError],
+    [bonds, weekData, isWeekError, favorites],
   );
+
+  // Колонка избранного добавляется первой; toggle берётся из хука.
+  const columns = useMemo<ColumnDef<BondRow>[]>(
+    () => [
+      {
+        id: 'favorite',
+        accessorFn: (row) => (row.isFavorite ? 1 : 0),
+        header: () => <Star className="mx-auto size-4 text-muted-foreground" />,
+        cell: ({ row }) => {
+          const { isFavorite, secid } = row.original;
+          return (
+            <button
+              type="button"
+              aria-label={isFavorite ? 'Убрать из избранного' : 'Добавить в избранное'}
+              className="text-muted-foreground transition-colors hover:text-yellow-500"
+              onClick={() => toggleFavorite(secid)}
+            >
+              <Star className={cn('size-4', isFavorite && 'fill-yellow-400 text-yellow-500')} />
+            </button>
+          );
+        },
+      },
+      ...COLUMNS,
+    ],
+    [toggleFavorite],
+  );
+
+  // Избранное всегда первично в сортировке (поверх пользовательской), поэтому держится сверху.
+  const effectiveSorting = useMemo<SortingState>(() => [{ id: 'favorite', desc: true }, ...sorting], [sorting]);
+
+  const handleSortingChange = useCallback<OnChangeFn<SortingState>>((updater) => {
+    setSorting((prev) => {
+      const prevEffective: SortingState = [{ id: 'favorite', desc: true }, ...prev];
+      const nextEffective = typeof updater === 'function' ? updater(prevEffective) : updater;
+      return nextEffective.filter((item) => item.id !== 'favorite');
+    });
+  }, []);
 
   const typeOptions = useMemo(
     () =>
@@ -306,9 +374,9 @@ export const Bonds = () => {
 
   const table = useReactTable({
     data: rows,
-    columns: COLUMNS,
-    state: { sorting, columnFilters },
-    onSortingChange: setSorting,
+    columns,
+    state: { sorting: effectiveSorting, columnFilters },
+    onSortingChange: handleSortingChange,
     onColumnFiltersChange: setColumnFilters,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
@@ -444,17 +512,21 @@ export const Bonds = () => {
                           key={header.id}
                           className={cn('sticky top-0 z-10 bg-muted', alignClass(header.column.id))}
                         >
-                          <button
-                            type="button"
-                            className={cn(
-                              'inline-flex w-full items-center gap-1 font-medium transition-colors hover:text-foreground',
-                              headerJustifyClass(header.column.id),
-                            )}
-                            onClick={header.column.getToggleSortingHandler()}
-                          >
-                            {flexRender(header.column.columnDef.header, header.getContext())}
-                            <SortIcon sorted={header.column.getIsSorted()} />
-                          </button>
+                          {header.column.id === 'favorite' ? (
+                            flexRender(header.column.columnDef.header, header.getContext())
+                          ) : (
+                            <button
+                              type="button"
+                              className={cn(
+                                'inline-flex w-full items-center gap-1 font-medium transition-colors hover:text-foreground',
+                                headerJustifyClass(header.column.id),
+                              )}
+                              onClick={header.column.getToggleSortingHandler()}
+                            >
+                              {flexRender(header.column.columnDef.header, header.getContext())}
+                              <SortIcon sorted={header.column.getIsSorted()} />
+                            </button>
+                          )}
                         </TableHead>
                       ))}
                     </TableRow>
@@ -464,7 +536,7 @@ export const Bonds = () => {
                   {table.getRowModel().rows.length === 0 ? (
                     <TableRow>
                       <TableCell
-                        colSpan={COLUMNS.length}
+                        colSpan={columns.length}
                         className="h-24 text-center text-muted-foreground"
                       >
                         Ничего не найдено
