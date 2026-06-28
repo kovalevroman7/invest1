@@ -17,6 +17,7 @@ import {
   ChevronsLeft,
   ChevronsRight,
   ChevronsUpDown,
+  Loader2,
   RefreshCw,
   TrendingDown,
   TrendingUp,
@@ -29,8 +30,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import type { Bond } from '@/features/bonds';
-import { useGetBondsQuery } from '@/features/bonds';
+import { useGetBondsQuery, useGetWeekAgoClosesQuery } from '@/features/bonds';
 import { cn } from '@/lib/utils';
+
+// Строка таблицы = облигация + изменение за неделю (undefined, пока данные грузятся).
+type BondRow = Bond & { weekChange: number | null | undefined };
 
 const EMPTY_BONDS: Bond[] = [];
 const SKELETON_KEYS = ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8'];
@@ -64,6 +68,7 @@ const RIGHT_ALIGNED = new Set([
   'priceRub',
   'accruedInt',
   'dayChangePercent',
+  'weekChange',
   'effectiveYield',
   'couponPercent',
   'couponValue',
@@ -157,7 +162,7 @@ const formatTypeLabel = (type: string): string => {
 const CURRENCY_LABELS: Record<string, string> = { SUR: 'RUB' };
 const formatCurrency = (currency: string): string => CURRENCY_LABELS[currency] ?? currency;
 
-const COLUMNS: ColumnDef<Bond>[] = [
+const COLUMNS: ColumnDef<BondRow>[] = [
   {
     accessorKey: 'shortName',
     header: 'Название',
@@ -211,6 +216,17 @@ const COLUMNS: ColumnDef<Bond>[] = [
     cell: ({ getValue }) => <DayChangeCell value={getValue<number | null>()} />,
   },
   {
+    accessorKey: 'weekChange',
+    header: 'Изм. за неделю',
+    cell: ({ getValue }) => {
+      const value = getValue<number | null | undefined>();
+      if (value === undefined) {
+        return <Loader2 className="inline size-3.5 animate-spin text-muted-foreground" />;
+      }
+      return <DayChangeCell value={value} />;
+    },
+  },
+  {
     accessorKey: 'effectiveYield',
     header: 'Доходность, %',
     cell: ({ getValue }) => <span className="font-medium">{formatNumber(getValue<number | null>())}</span>,
@@ -244,8 +260,28 @@ const COLUMNS: ColumnDef<Bond>[] = [
 
 export const Bonds = () => {
   const { data: bonds, isLoading, isError, isFetching, refetch } = useGetBondsQuery();
+  const { data: weekData, isError: isWeekError } = useGetWeekAgoClosesQuery();
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+
+  // Объединяем облигации с изменением за неделю (undefined — данные ещё грузятся → спиннер).
+  const rows = useMemo<BondRow[]>(
+    () =>
+      (bonds ?? EMPTY_BONDS).map((bond) => {
+        let weekChange: number | null | undefined;
+        if (weekData) {
+          const past = weekData.closes[bond.secid];
+          weekChange =
+            past !== undefined && past !== 0 && bond.pricePercent !== null
+              ? Math.round(((bond.pricePercent - past) / past) * 10_000) / 100
+              : null;
+        } else if (isWeekError) {
+          weekChange = null;
+        }
+        return { ...bond, weekChange };
+      }),
+    [bonds, weekData, isWeekError],
+  );
 
   const typeOptions = useMemo(
     () =>
@@ -263,7 +299,7 @@ export const Bonds = () => {
   const hasUnrated = useMemo(() => (bonds ?? EMPTY_BONDS).some((bond) => bond.creditRating === null), [bonds]);
 
   const table = useReactTable({
-    data: bonds ?? EMPTY_BONDS,
+    data: rows,
     columns: COLUMNS,
     state: { sorting, columnFilters },
     onSortingChange: setSorting,
@@ -389,6 +425,7 @@ export const Bonds = () => {
             <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Доходность</span> — эффективная доходность к погашению по
               данным MOEX (поле YIELD), с учётом реинвестирования купонов.
+              {weekData?.date ? ` «Изм. за неделю» — к закрытию ${weekData.date}.` : ''}
             </div>
 
             <div className="max-h-[65vh] overflow-auto rounded-lg border">

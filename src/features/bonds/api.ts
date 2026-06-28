@@ -4,6 +4,12 @@ import type { Bond, MoexSecuritiesResponse } from './types';
 
 const BOND_COLUMNS = 'SECID,SHORTNAME,ISIN,SECTYPE,FACEVALUE,ACCRUEDINT,COUPONPERCENT,COUPONVALUE,MATDATE,CURRENCYID';
 
+// Ответ исторического эндпоинта MOEX (закрытия за дату).
+interface HistoryResponse {
+  history: { columns: string[]; data: (string | number | null)[][] };
+  'history.cursor'?: { columns: string[]; data: number[][] };
+}
+
 const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
 
 // Метки типов по коду MOEX SECTYPE (кроме гособлигаций — см. getBondType).
@@ -222,6 +228,7 @@ const bondsApi = moexApi.injectEndpoints({
             type,
             creditRating: getCreditRating(shortName, type),
             faceValue,
+            pricePercent,
             priceRub,
             accruedInt: toNumber(row[idxAccruedInt]),
             dayChangePercent: market?.dayChangePercent ?? null,
@@ -238,7 +245,99 @@ const bondsApi = moexApi.injectEndpoints({
         return bonds;
       },
     }),
+
+    /**
+     * Цены закрытия (% от номинала) на ближайшую торговую дату ~неделю назад.
+     *
+     * MOEX не отдаёт недельное изменение готовым полем, поэтому грузим исторические
+     * закрытия постранично (history endpoint, по 100 бумаг) и собираем карту
+     * SECID → цена. Используется для расчёта изменения за неделю на стороне UI.
+     */
+    getWeekAgoCloses: builder.query<{ date: string; closes: Record<string, number> }, void>({
+      queryFn: async (_arg, _api, _extra, fetchWithBQ) => {
+        const HISTORY_URL = 'history/engines/stock/markets/bonds/securities.json';
+        const PAGE = 100;
+
+        const fetchPage = async (date: string, start: number) =>
+          fetchWithBQ({
+            url: HISTORY_URL,
+            params: {
+              date,
+              start,
+              limit: PAGE,
+              'iss.meta': 'off',
+              'iss.only': 'history,history.cursor',
+              'history.columns': 'SECID,LEGALCLOSEPRICE,CLOSE',
+            },
+          });
+
+        const toIsoDate = (date: Date): string => date.toISOString().slice(0, 10);
+
+        // Подбираем ближайшую торговую дату ~неделю назад (пропускаем выходные/праздники).
+        let referenceDate = '';
+        let total = 0;
+        let firstPage: HistoryResponse | null = null;
+        for (let back = 7; back <= 14; back += 1) {
+          const date = new Date();
+          date.setDate(date.getDate() - back);
+          const iso = toIsoDate(date);
+          const res = await fetchPage(iso, 0);
+          if (res.error) {
+            return { error: res.error };
+          }
+          const payload = res.data as HistoryResponse;
+          const cursor = payload['history.cursor'];
+          const found = cursor ? Number(cursor.data[0]?.[cursor.columns.indexOf('TOTAL')] ?? 0) : 0;
+          if (found > 0) {
+            referenceDate = iso;
+            total = found;
+            firstPage = payload;
+            break;
+          }
+        }
+
+        if (!firstPage) {
+          return { data: { date: '', closes: {} } };
+        }
+
+        const restStarts: number[] = [];
+        for (let start = PAGE; start < total; start += PAGE) {
+          restStarts.push(start);
+        }
+        const restResults = await Promise.all(restStarts.map((start) => fetchPage(referenceDate, start)));
+
+        const closes: Record<string, number> = {};
+        const addRows = (payload: HistoryResponse) => {
+          const { columns, data } = payload.history;
+          const iSecid = columns.indexOf('SECID');
+          const iLegal = columns.indexOf('LEGALCLOSEPRICE');
+          const iClose = columns.indexOf('CLOSE');
+          for (const row of data) {
+            const secid = typeof row[iSecid] === 'string' ? row[iSecid] : '';
+            if (!secid || secid in closes) {
+              continue;
+            }
+            const legal = row[iLegal];
+            const close = row[iClose];
+            const price = typeof legal === 'number' ? legal : typeof close === 'number' ? close : null;
+            if (price !== null) {
+              closes[secid] = price;
+            }
+          }
+        };
+
+        addRows(firstPage);
+        for (const res of restResults) {
+          if (res.error) {
+            return { error: res.error };
+          }
+          addRows(res.data as HistoryResponse);
+        }
+
+        return { data: { date: referenceDate, closes } };
+      },
+    }),
   }),
 });
 
-export const { useGetBondsQuery } = bondsApi;
+export const { useGetBondsQuery, useGetWeekAgoClosesQuery } = bondsApi;

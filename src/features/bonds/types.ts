@@ -7,6 +7,8 @@ export interface Bond {
   /** Кредитный рейтинг эмитента (нац. шкала, ручной справочник) или `null`. */
   creditRating: string | null;
   faceValue: number | null;
+  /** Текущая цена в % от номинала (для сравнения с историческими закрытиями). */
+  pricePercent: number | null;
   /** Цена в рублях = цена в % от номинала × номинал / 100. */
   priceRub: number | null;
   /** НКД — накопленный купонный доход в рублях (ACCRUEDINT). */
