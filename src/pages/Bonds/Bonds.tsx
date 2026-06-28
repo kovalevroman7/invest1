@@ -208,7 +208,7 @@ const COLUMNS: ColumnDef<Bond>[] = [
   },
   {
     accessorKey: 'simpleYield',
-    header: 'Доходность, %',
+    header: 'Доходность в год, %',
     cell: ({ getValue }) => <span className="font-medium">{formatNumber(getValue<number | null>())}</span>,
   },
   {
@@ -376,6 +376,12 @@ export const Bonds = () => {
               >
                 Найдено: {filteredCount}
               </Badge>
+            </div>
+
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Доходность в год</span> = (годовой купон + (номинал −
+              грязная цена) ÷ лет до погашения) ÷ грязная цена × 100%, где грязная цена = цена + НКД. Без учёта
+              реинвестирования купонов.
             </div>
 
             <div className="max-h-[65vh] overflow-auto rounded-lg border">
