@@ -153,6 +153,10 @@ const formatTypeLabel = (type: string): string => {
   return description ? `${type} (${description})` : type;
 };
 
+// MOEX обозначает российский рубль кодом SUR — показываем привычное RUB.
+const CURRENCY_LABELS: Record<string, string> = { SUR: 'RUB' };
+const formatCurrency = (currency: string): string => CURRENCY_LABELS[currency] ?? currency;
+
 const COLUMNS: ColumnDef<Bond>[] = [
   {
     accessorKey: 'shortName',
@@ -231,7 +235,11 @@ const COLUMNS: ColumnDef<Bond>[] = [
     header: 'Лет до погашения',
     cell: ({ getValue }) => formatNumber(getValue<number | null>()),
   },
-  { accessorKey: 'currency', header: 'Валюта' },
+  {
+    accessorKey: 'currency',
+    header: 'Валюта',
+    cell: ({ getValue }) => formatCurrency(getValue<string>()),
+  },
 ];
 
 export const Bonds = () => {
