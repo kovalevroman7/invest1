@@ -116,6 +116,100 @@ const getCouponsPerYear = (
   return frequency >= 1 && frequency <= 12 ? frequency : null;
 };
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** Внутренняя норма доходности (XIRR, act/365) методом Ньютона. */
+const computeXirr = (amounts: number[], dayOffsets: number[]): number | null => {
+  let rate = 0.1;
+  for (let iter = 0; iter < 100; iter += 1) {
+    let value = 0;
+    let derivative = 0;
+    for (let i = 0; i < amounts.length; i += 1) {
+      const t = dayOffsets[i] / 365;
+      const base = 1 + rate;
+      if (base <= 0) {
+        return null;
+      }
+      const discount = base ** t;
+      value += amounts[i] / discount;
+      derivative += (-t * amounts[i]) / (discount * base);
+    }
+    if (derivative === 0) {
+      return null;
+    }
+    const next = rate - value / derivative;
+    if (!Number.isFinite(next)) {
+      return null;
+    }
+    const isConverged = Math.abs(next - rate) < 1e-7;
+    rate = next;
+    if (isConverged) {
+      break;
+    }
+  }
+  if (!Number.isFinite(rate) || rate <= -0.99 || rate > 10) {
+    return null;
+  }
+  return Math.round(rate * 10_000) / 100;
+};
+
+/**
+ * Доходность XIRR в %.
+ *
+ * Восстанавливаем график денежных потоков: сегодня −(грязная цена), затем купоны
+ * (отсчитываем назад от даты погашения с шагом 365/частота) и возврат номинала в
+ * дату погашения. Для флоатеров (нет купона) и бумаг без цены/срока — `null`.
+ */
+const getXirrYield = (
+  priceRub: number | null,
+  accruedInt: number | null,
+  couponValue: number | null,
+  couponsPerYear: number | null,
+  faceValue: number | null,
+  matDate: string,
+): number | null => {
+  const maturityMs = Date.parse(matDate);
+  if (
+    priceRub === null ||
+    faceValue === null ||
+    couponValue === null ||
+    couponValue === 0 ||
+    couponsPerYear === null ||
+    couponsPerYear === 0 ||
+    Number.isNaN(maturityMs)
+  ) {
+    return null;
+  }
+  const daysToMaturity = (maturityMs - Date.now()) / DAY_MS;
+  if (daysToMaturity <= 0) {
+    return null;
+  }
+  const dirtyPrice = priceRub + (accruedInt ?? 0);
+  if (dirtyPrice <= 0) {
+    return null;
+  }
+
+  const periodDays = 365 / couponsPerYear;
+  const amounts: number[] = [-dirtyPrice];
+  const dayOffsets: number[] = [0];
+
+  const couponDays: number[] = [];
+  for (let d = daysToMaturity; d > 0.5; d -= periodDays) {
+    couponDays.push(d);
+  }
+  couponDays.reverse();
+  for (const d of couponDays) {
+    amounts.push(couponValue);
+    dayOffsets.push(d);
+  }
+
+  // Возврат номинала в дату погашения.
+  amounts.push(faceValue);
+  dayOffsets.push(daysToMaturity);
+
+  return computeXirr(amounts, dayOffsets);
+};
+
 /** Количество лет до погашения; `null`, если дата не задана (бессрочные и т.п.). */
 const getYearsToMaturity = (matDate: string): number | null => {
   const ms = Date.parse(matDate);
@@ -238,6 +332,14 @@ const bondsApi = moexApi.injectEndpoints({
             matDate,
             yearsToMaturity: getYearsToMaturity(matDate),
             effectiveYield: market?.effectiveYield ?? null,
+            xirrYield: getXirrYield(
+              priceRub,
+              toNumber(row[idxAccruedInt]),
+              couponValue,
+              getCouponsPerYear(faceValue, couponPercent, couponValue),
+              faceValue,
+              matDate,
+            ),
             currency: toString(row[idxCurrency]),
           });
         }

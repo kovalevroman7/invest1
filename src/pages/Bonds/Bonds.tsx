@@ -70,6 +70,7 @@ const RIGHT_ALIGNED = new Set([
   'dayChangePercent',
   'weekChange',
   'effectiveYield',
+  'xirrYield',
   'couponPercent',
   'couponValue',
   'couponsPerYear',
@@ -230,6 +231,11 @@ const COLUMNS: ColumnDef<BondRow>[] = [
     accessorKey: 'effectiveYield',
     header: 'Доходность, %',
     cell: ({ getValue }) => <span className="font-medium">{formatNumber(getValue<number | null>())}</span>,
+  },
+  {
+    accessorKey: 'xirrYield',
+    header: 'XIRR, %',
+    cell: ({ getValue }) => formatNumber(getValue<number | null>()),
   },
   {
     accessorKey: 'couponPercent',

@@ -24,6 +24,8 @@ export interface Bond {
   yearsToMaturity: number | null;
   /** Эффективная доходность к погашению в % (поле MOEX YIELD). */
   effectiveYield: number | null;
+  /** Доходность XIRR в % — внутренняя норма доходности по графику денежных потоков. */
+  xirrYield: number | null;
   currency: string;
 }
 
