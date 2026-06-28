@@ -2,7 +2,7 @@ import { moexApi } from '@/shared/api/moexApi';
 
 import type { Bond, MoexSecuritiesResponse } from './types';
 
-const BOND_COLUMNS = 'SECID,SHORTNAME,ISIN,SECTYPE,FACEVALUE,COUPONPERCENT,COUPONVALUE,MATDATE,CURRENCYID';
+const BOND_COLUMNS = 'SECID,SHORTNAME,ISIN,SECTYPE,FACEVALUE,ACCRUEDINT,COUPONPERCENT,COUPONVALUE,MATDATE,CURRENCYID';
 
 const MS_PER_YEAR = 365.25 * 24 * 60 * 60 * 1000;
 
@@ -110,6 +110,32 @@ const getCouponsPerYear = (
   return frequency >= 1 && frequency <= 12 ? frequency : null;
 };
 
+/**
+ * Простая доходность к погашению в % (без учёта реинвестирования купонов).
+ *
+ * Формула: (годовой купон + (номинал − грязная цена) / лет) / грязная цена.
+ * Грязная цена = цена в рублях + НКД. Для флоатеров (без ставки) и бумаг без
+ * цены/срока возвращает `null`.
+ */
+const getSimpleYield = (
+  priceRub: number | null,
+  accruedInt: number | null,
+  faceValue: number | null,
+  couponPercent: number | null,
+  years: number | null,
+): number | null => {
+  if (priceRub === null || faceValue === null || couponPercent === null || years === null || years <= 0) {
+    return null;
+  }
+  const dirtyPrice = priceRub + (accruedInt ?? 0);
+  if (dirtyPrice <= 0) {
+    return null;
+  }
+  const annualCoupon = (faceValue * couponPercent) / 100;
+  const yieldPercent = ((annualCoupon + (faceValue - dirtyPrice) / years) / dirtyPrice) * 100;
+  return Math.round(yieldPercent * 100) / 100;
+};
+
 /** Количество лет до погашения; `null`, если дата не задана (бессрочные и т.п.). */
 const getYearsToMaturity = (matDate: string): number | null => {
   const ms = Date.parse(matDate);
@@ -169,6 +195,7 @@ const bondsApi = moexApi.injectEndpoints({
         const idxIsin = index('ISIN');
         const idxSecType = index('SECTYPE');
         const idxFaceValue = index('FACEVALUE');
+        const idxAccruedInt = index('ACCRUEDINT');
         const idxCouponPercent = index('COUPONPERCENT');
         const idxCouponValue = index('COUPONVALUE');
         const idxMatDate = index('MATDATE');
@@ -192,6 +219,9 @@ const bondsApi = moexApi.injectEndpoints({
           const type = getBondType(secid, toString(row[idxSecType]));
           const couponPercent = toNumber(row[idxCouponPercent]);
           const couponValue = toNumber(row[idxCouponValue]);
+          const priceRub = pricePercent !== null && faceValue !== null ? (pricePercent / 100) * faceValue : null;
+          const accruedInt = toNumber(row[idxAccruedInt]);
+          const yearsToMaturity = getYearsToMaturity(matDate);
 
           bonds.push({
             secid,
@@ -200,13 +230,15 @@ const bondsApi = moexApi.injectEndpoints({
             type,
             creditRating: getCreditRating(shortName, type),
             faceValue,
-            priceRub: pricePercent !== null && faceValue !== null ? (pricePercent / 100) * faceValue : null,
+            priceRub,
+            accruedInt,
             dayChangePercent: market?.dayChangePercent ?? null,
             couponPercent,
             couponValue,
             couponsPerYear: getCouponsPerYear(faceValue, couponPercent, couponValue),
             matDate,
-            yearsToMaturity: getYearsToMaturity(matDate),
+            yearsToMaturity,
+            simpleYield: getSimpleYield(priceRub, accruedInt, faceValue, couponPercent, yearsToMaturity),
             currency: toString(row[idxCurrency]),
           });
         }

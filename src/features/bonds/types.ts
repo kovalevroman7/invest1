@@ -9,6 +9,8 @@ export interface Bond {
   faceValue: number | null;
   /** Цена в рублях = цена в % от номинала × номинал / 100. */
   priceRub: number | null;
+  /** НКД — накопленный купонный доход в рублях (ACCRUEDINT). */
+  accruedInt: number | null;
   /** Изменение цены за день в % (последняя сделка к закрытию предыдущего дня). */
   dayChangePercent: number | null;
   couponPercent: number | null;
@@ -18,6 +20,8 @@ export interface Bond {
   matDate: string;
   /** Лет до погашения (может быть отрицательным/`null` для бессрочных и без даты). */
   yearsToMaturity: number | null;
+  /** Простая доходность к погашению в % (без учёта реинвестирования купонов). */
+  simpleYield: number | null;
   currency: string;
 }
 

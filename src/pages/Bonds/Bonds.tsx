@@ -62,7 +62,9 @@ const RATING_ORDER = [
 const RIGHT_ALIGNED = new Set([
   'faceValue',
   'priceRub',
+  'accruedInt',
   'dayChangePercent',
+  'simpleYield',
   'couponPercent',
   'couponValue',
   'couponsPerYear',
@@ -195,9 +197,19 @@ const COLUMNS: ColumnDef<Bond>[] = [
     cell: ({ getValue }) => <span className="font-medium">{formatNumber(getValue<number | null>())}</span>,
   },
   {
+    accessorKey: 'accruedInt',
+    header: 'НКД, ₽',
+    cell: ({ getValue }) => formatNumber(getValue<number | null>()),
+  },
+  {
     accessorKey: 'dayChangePercent',
     header: 'Изм. за день',
     cell: ({ getValue }) => <DayChangeCell value={getValue<number | null>()} />,
+  },
+  {
+    accessorKey: 'simpleYield',
+    header: 'Доходность, %',
+    cell: ({ getValue }) => <span className="font-medium">{formatNumber(getValue<number | null>())}</span>,
   },
   {
     accessorKey: 'couponPercent',
